@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import QRCode from "qrcode";
 import * as bodySegmentation from "@tensorflow-models/body-segmentation";
 import "@tensorflow/tfjs-backend-webgl";
-import { uploadStripToSupabase } from "./supabaseClient";
 
 const STAGE_WIDTH = 1080;
 const STAGE_HEIGHT = 1920;
@@ -347,7 +345,6 @@ export default function App() {
   const [activeEmoji, setActiveEmoji] = useState(AVAILABLE_EMOJIS[0]);
   const [emojiPlacements, setEmojiPlacements] = useState([]);
   const [sheetUrl, setSheetUrl] = useState("");
-  const [qrUrl, setQrUrl] = useState("");
 
   const captureLabel = useMemo(() => {
     if (isProcessingCaptures) return "Preparing...";
@@ -654,7 +651,6 @@ export default function App() {
     setPoses([]);
     setEmojiPlacements([]);
     setSheetUrl("");
-    setQrUrl("");
     setRegistration({ name: "", email: "", mobile: "" });
     setStep(nextStep);
     updateStatus(nextStep === "register" ? "Enter your details" : `Capture ${STRIP_COUNT} photos`, "ready");
@@ -752,7 +748,7 @@ export default function App() {
       setEmojiPlacements(nextPlacements);
       const sheetDataUrl = await drawSheet(processedPoses, nextPlacements);
       setStep("edit");
-      generateDownloadQr(sheetDataUrl);
+      saveOutputImage(sheetDataUrl);
     } finally {
       setCountdown(null);
       setIsCapturingSequence(false);
@@ -810,26 +806,26 @@ export default function App() {
     await drawSheet(poses, nextPlacements);
   }
 
-  async function generateDownloadQr(imageData) {
-    setQrUrl("");
-
+  async function saveOutputImage(imageData) {
     try {
-      updateStatus("Uploading photo strip");
-      const blob = await (await fetch(imageData)).blob();
-      const filename = `photo-strip-${new Date().toISOString().replace(/[:.]/g, "-")}.png`;
-      const publicUrl = await uploadStripToSupabase(blob, filename);
-
-      const qrDataUrl = await QRCode.toDataURL(publicUrl, {
-        margin: 1,
-        width: 600,
-        errorCorrectionLevel: "M",
-        color: { dark: "#000000", light: "#ffffff" },
+      updateStatus("Saving photo strip");
+      // imageData is a lossless PNG data URL straight from the canvas, so the
+      // saved file is bit-for-bit identical to what was composited — no quality loss.
+      const response = await fetch("/api/save-output-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageData }),
       });
-      setQrUrl(qrDataUrl);
-      updateStatus("Scan the QR code to download", "ready");
+
+      if (!response.ok) {
+        throw new Error(`Save failed with status ${response.status}`);
+      }
+
+      const { filename } = await response.json();
+      updateStatus(`Saved to output_images/${filename}`, "ready");
     } catch (error) {
-      console.warn("Could not upload strip / generate QR code.", error);
-      updateStatus("Could not prepare download link", "error");
+      console.warn("Could not save the photo strip.", error);
+      updateStatus("Could not save the photo strip", "error");
     }
   }
 
@@ -921,12 +917,12 @@ export default function App() {
               {sheetUrl ? <img src={sheetUrl} alt="Editable output preview" /> : "Preparing preview"}
             </div>
 
-            <div className="qr-backdrop">
-              <div className="qr-code">{qrUrl ? <img src={qrUrl} alt="Scan to download your photo strip" /> : null}</div>
-            </div>
-
             <button className="print-btn" type="button" onClick={printSheet}>
               Print
+            </button>
+
+            <button className="home-btn" type="button" onClick={() => resetProject("register")}>
+              Home
             </button>
           </div>
         </main>

@@ -896,33 +896,6 @@ select {
   object-fit: fill;
 }
 
-.qr-backdrop {
-  position: absolute;
-  top: 699.51px;
-  left: 604.27px;
-  width: 344.15px;
-  height: 344.15px;
-  background: url("/qrb.png") center / contain no-repeat;
-}
-
-.qr-code {
-  position: absolute;
-  top: 20.62px;
-  left: 20.62px;
-  width: 302.91px;
-  height: 302.91px;
-  border-radius: 13.2px;
-  overflow: hidden;
-  background: #ffffff;
-}
-
-.qr-code img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
 .print-btn {
   position: absolute;
   top: 1442.42px;
@@ -943,6 +916,29 @@ select {
 }
 
 .print-btn:hover {
+  background: #ff520c;
+}
+
+.home-btn {
+  position: absolute;
+  top: 1539.34px;
+  left: 562.98px;
+  width: 426.73px;
+  height: 72.92px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 116.9px;
+  background: #ff3e0c;
+  color: #ffffff;
+  font-family: "Formular", "Sons", sans-serif;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  cursor: pointer;
+}
+
+.home-btn:hover {
   background: #ff520c;
 }
 
