@@ -1,12 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import QRCode from "qrcode";
 import * as bodySegmentation from "@tensorflow-models/body-segmentation";
 import "@tensorflow/tfjs-backend-webgl";
+import { uploadStripToSupabase } from "./supabaseClient";
 
+const STAGE_WIDTH = 1080;
+const STAGE_HEIGHT = 1920;
 const POSE_WIDTH = 468;
 const POSE_HEIGHT = 702;
 const SHEET_WIDTH = 1200;
 const SHEET_HEIGHT = 1800;
-const FRAME_SRC = "/frame.png";
+const FRAME_SRC = "/framelat.png";
 const PERSON_SCALE = 1;
 const PERSON_BASELINE_DROP = 0.06;
 const FRAME_SHADOW_CROP = 64;
@@ -78,32 +82,37 @@ function setCanvasContain(ctx, source, sourceWidth, sourceHeight, targetX, targe
 }
 
 function drawFrameBackground(ctx, frameImage) {
-  const sourceWidth = Math.max(1, frameImage.naturalWidth - FRAME_SHADOW_CROP);
-  const sourceHeight = Math.max(1, frameImage.naturalHeight - FRAME_SHADOW_CROP);
-  ctx.drawImage(frameImage, 0, 0, sourceWidth, sourceHeight, 0, 0, SHEET_WIDTH, SHEET_HEIGHT);
+  // framelat.png is a single-strip frame, so draw it once per strip column.
+  const columns = 2;
+  const columnWidth = SHEET_WIDTH / columns;
+  for (let column = 0; column < columns; column += 1) {
+    ctx.drawImage(frameImage, column * columnWidth, 0, columnWidth, SHEET_HEIGHT);
+  }
 }
+
+// Photo slot positions inside a single strip column (600 x 1800 space),
+// measured against the framelat.png frame.
+const STRIP_PHOTO_SLOTS = [
+  { top: 59.42, left: 49.74, width: 500.52, height: 421.97 },
+  { top: 539.9, left: 49.74, width: 500.52, height: 421.97 },
+  { top: 1020.38, left: 49.74, width: 500.52, height: 421.97 },
+];
 
 function getSheetBoxes() {
   const columns = 2;
-  const rows = STRIP_COUNT;
-  const stripWidth = SHEET_WIDTH / columns;
-  const stripSideMargin = 58;
-  const rowGap = 24;
-  const gridTop = 290;
-  const imageWidth = stripWidth - stripSideMargin * 2;
-  const imageHeight = 390;
+  const columnWidth = SHEET_WIDTH / columns;
   const boxes = [];
 
-  for (let row = 0; row < rows; row += 1) {
-    for (let column = 0; column < columns; column += 1) {
+  for (let column = 0; column < columns; column += 1) {
+    STRIP_PHOTO_SLOTS.forEach((slot, row) => {
       boxes.push({
         poseIndex: row,
-        x: column * stripWidth + stripSideMargin,
-        y: gridTop + row * (imageHeight + rowGap),
-        width: imageWidth,
-        height: imageHeight,
+        x: column * columnWidth + slot.left,
+        y: slot.top,
+        width: slot.width,
+        height: slot.height,
       });
-    }
+    });
   }
 
   return boxes;
@@ -323,10 +332,9 @@ export default function App() {
   const segmenterLoadingRef = useRef(null);
   const imageBoxesRef = useRef([]);
 
-  const [step, setStep] = useState(() => {
-    const savedStep = sessionStorage.getItem("photoBoothStep");
-    return savedStep === "strip" ? "background" : savedStep || "background";
-  });
+  const [step, setStep] = useState("register");
+  const [registration, setRegistration] = useState({ name: "", email: "", mobile: "" });
+  const [stageScale, setStageScale] = useState(1);
   const [status, setStatus] = useState({ message: "Select a background", type: "" });
   const [cameras, setCameras] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState("");
@@ -339,6 +347,7 @@ export default function App() {
   const [activeEmoji, setActiveEmoji] = useState(AVAILABLE_EMOJIS[0]);
   const [emojiPlacements, setEmojiPlacements] = useState([]);
   const [sheetUrl, setSheetUrl] = useState("");
+  const [qrUrl, setQrUrl] = useState("");
 
   const captureLabel = useMemo(() => {
     if (isProcessingCaptures) return "Preparing...";
@@ -386,8 +395,34 @@ export default function App() {
   }, [step]);
 
   useEffect(() => {
-    sessionStorage.setItem("photoBoothStep", step);
-  }, [step]);
+    function updateStageScale() {
+      const scale = Math.min(window.innerWidth / STAGE_WIDTH, window.innerHeight / STAGE_HEIGHT);
+      setStageScale(scale > 0 ? scale : 1);
+    }
+
+    updateStageScale();
+    window.addEventListener("resize", updateStageScale);
+    return () => window.removeEventListener("resize", updateStageScale);
+  }, []);
+
+  function updateRegistrationField(field, value) {
+    setRegistration((current) => ({ ...current, [field]: value }));
+  }
+
+  function handleRegisterSubmit(event) {
+    event.preventDefault();
+    const name = registration.name.trim();
+    const email = registration.email.trim();
+    const mobile = registration.mobile.trim();
+
+    if (!name || !email || !mobile) {
+      updateStatus("Please fill in your name, email, and mobile number", "error");
+      return;
+    }
+
+    setRegistration({ name, email, mobile });
+    goToCapture();
+  }
 
   async function getSegmenter() {
     if (segmenterRef.current) return segmenterRef.current;
@@ -615,12 +650,14 @@ export default function App() {
     return dataUrl;
   }
 
-  function resetProject(nextStep = "background") {
+  function resetProject(nextStep = "register") {
     setPoses([]);
     setEmojiPlacements([]);
     setSheetUrl("");
+    setQrUrl("");
+    setRegistration({ name: "", email: "", mobile: "" });
     setStep(nextStep);
-    updateStatus(nextStep === "background" ? "Select a background" : `Capture ${STRIP_COUNT} photos`, "ready");
+    updateStatus(nextStep === "register" ? "Enter your details" : `Capture ${STRIP_COUNT} photos`, "ready");
   }
 
   function chooseBackground(option) {
@@ -661,18 +698,12 @@ export default function App() {
   }
 
   async function processCapturedFrame(frameCanvas) {
-    updateStatus("Adding background");
-    const poseCanvas = await makePoseCanvas(frameCanvas);
-    if (!poseCanvas) {
-      updateStatus("Could not process captured photo", "error");
-      return null;
-    }
-
+    // No masking: use the raw captured camera frame directly.
     return {
       id: crypto.randomUUID(),
-      url: poseCanvas.toDataURL("image/png"),
-      previewUrl: makePreviewUrl(poseCanvas, capturePreviewRatioValue, 0.5),
-      baseCanvas: poseCanvas,
+      url: frameCanvas.toDataURL("image/png"),
+      previewUrl: makePreviewUrl(frameCanvas, capturePreviewRatioValue, 0.5),
+      baseCanvas: frameCanvas,
     };
   }
 
@@ -719,8 +750,9 @@ export default function App() {
       const nextPlacements = Array(STRIP_COUNT).fill(null);
       setPoses(processedPoses);
       setEmojiPlacements(nextPlacements);
-      await drawSheet(processedPoses, nextPlacements);
+      const sheetDataUrl = await drawSheet(processedPoses, nextPlacements);
       setStep("edit");
+      generateDownloadQr(sheetDataUrl);
     } finally {
       setCountdown(null);
       setIsCapturingSequence(false);
@@ -778,125 +810,122 @@ export default function App() {
     await drawSheet(poses, nextPlacements);
   }
 
-  async function saveSheetLocally() {
+  async function generateDownloadQr(imageData) {
+    setQrUrl("");
+
     try {
-      updateStatus("Saving final image");
-      const response = await fetch("/api/save-output-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageData: sheetUrl }),
+      updateStatus("Uploading photo strip");
+      const blob = await (await fetch(imageData)).blob();
+      const filename = `photo-strip-${new Date().toISOString().replace(/[:.]/g, "-")}.png`;
+      const publicUrl = await uploadStripToSupabase(blob, filename);
+
+      const qrDataUrl = await QRCode.toDataURL(publicUrl, {
+        margin: 1,
+        width: 600,
+        errorCorrectionLevel: "M",
+        color: { dark: "#000000", light: "#ffffff" },
       });
-
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
-
-      updateStatus("Final image saved", "ready");
-      return true;
+      setQrUrl(qrDataUrl);
+      updateStatus("Scan the QR code to download", "ready");
     } catch (error) {
-      console.warn("Could not save final image.", error);
-      updateStatus("Could not save final image", "error");
-      return false;
+      console.warn("Could not upload strip / generate QR code.", error);
+      updateStatus("Could not prepare download link", "error");
     }
   }
 
-  async function printSheet() {
+  function printSheet() {
     if (!sheetUrl) return;
-
-    const saved = await saveSheetLocally();
-    if (!saved) return;
-
     window.print();
   }
 
   return (
     <div className="app">
-      {step === "background" && (
-        <main className="background-selection-screen">
-          <section className="background-chooser">
-            <h2>
-              Choose your <span>background</span>
-            </h2>
-            <div className="background-carousel" aria-label="Background choices">
-              {carouselBackgrounds.map((option, index) => (
-                <button
-                  className={`background-card position-${index} ${index === 0 ? "selected" : ""}`.trim()}
-                  type="button"
-                  key={option.id}
-                  onClick={() => chooseBackground(option)}
-                  aria-label={option.name}
-                >
-                  <img src={option.previewSrc} alt={option.name} />
-                </button>
-              ))}
-              <button className="carousel-next" type="button" onClick={chooseNextBackground} aria-label="Next background">
-                &gt;
+      {step === "register" && (
+        <main className="register-screen">
+          <div className="kiosk-stage register-stage" style={{ transform: `translate(-50%, -50%) scale(${stageScale})` }}>
+            <form className="register-form" onSubmit={handleRegisterSubmit}>
+              <label className="reg-field reg-name">
+                <input
+                  type="text"
+                  value={registration.name}
+                  onChange={(event) => updateRegistrationField("name", event.target.value)}
+                  autoComplete="name"
+                />
+                {!registration.name && (
+                  <span className="reg-placeholder">
+                    Enter Your <b>Name</b>
+                  </span>
+                )}
+              </label>
+
+              <label className="reg-field reg-email">
+                <input
+                  type="email"
+                  value={registration.email}
+                  onChange={(event) => updateRegistrationField("email", event.target.value)}
+                  autoComplete="email"
+                />
+                {!registration.email && (
+                  <span className="reg-placeholder">
+                    Enter Your <b>Email</b>
+                  </span>
+                )}
+              </label>
+
+              <label className="reg-field reg-mobile">
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  value={registration.mobile}
+                  onChange={(event) => updateRegistrationField("mobile", event.target.value)}
+                  autoComplete="tel"
+                />
+                {!registration.mobile && (
+                  <span className="reg-placeholder">
+                    Enter Your <b>Mobile No.</b>
+                  </span>
+                )}
+              </label>
+
+              <button className="reg-submit" type="submit">
+                SUBMIT
               </button>
-            </div>
-            <div className="background-actions">
-              <button className="primary" type="button" onClick={goToCapture}>
-                Next
-              </button>
-            </div>
-          </section>
+            </form>
+          </div>
         </main>
       )}
 
       {step === "capture" && (
         <main className="capture-screen">
-          <h2 className="capture-title">
-            Strike your best <span>poses</span>
-          </h2>
-          <section className="camera-area" aria-label="Camera preview">
-            <div className="video-wrap" style={{ "--capture-ratio": capturePreviewRatio }}>
+          <div className="kiosk-stage capture-stage" style={{ transform: `translate(-50%, -50%) scale(${stageScale})` }}>
+            <div className="capture-video-box">
               <video ref={videoRef} autoPlay playsInline muted />
               {countdown && <div className="countdown-overlay">{countdown}</div>}
             </div>
-            <div className="capture-actions">
-              <button className="primary" type="button" disabled={!cameraReady || isCapturingSequence || isProcessingCaptures} onClick={captureImage}>
-                {captureLabel}
-              </button>
-            </div>
-          </section>
+            <button
+              className="capture-btn"
+              type="button"
+              disabled={!cameraReady || isCapturingSequence || isProcessingCaptures}
+              onClick={captureImage}
+            >
+              {captureLabel}
+            </button>
+          </div>
         </main>
       )}
 
       {step === "edit" && (
         <main className="editor-screen">
-          <div className="edit-content">
-            <section className="sheet-workspace">
-              <div className="sheet-preview left-strip-preview">
-                {sheetUrl ? <img src={sheetUrl} alt="Editable output preview" /> : "Preparing preview"}
-              </div>
-            </section>
+          <div className="kiosk-stage edit-stage" style={{ transform: `translate(-50%, -50%) scale(${stageScale})` }}>
+            <div className="strip-preview-box">
+              {sheetUrl ? <img src={sheetUrl} alt="Editable output preview" /> : "Preparing preview"}
+            </div>
 
-            <aside className="emoji-side">
-              <section className="emoji-panel">
-                <div className="emoji-toolbar">
-                  <h2>Choose Emoji’s to display on strip</h2>
-                </div>
-                <div className="emoji-grid" aria-label="Emoji choices">
-                  {AVAILABLE_EMOJIS.map((emoji) => (
-                    <button
-                      className={activeEmoji.id === emoji.id ? "selected" : ""}
-                    type="button"
-                    key={emoji.id}
-                    aria-pressed={activeEmoji.id === emoji.id}
-                    onClick={() => selectEmojiForFixedSlot(emoji)}
-                  >
-                      <img src={emoji.src} alt={emoji.name} />
-                    </button>
-                  ))}
-                </div>
-              </section>
-            </aside>
-          </div>
+            <div className="qr-backdrop">
+              <div className="qr-code">{qrUrl ? <img src={qrUrl} alt="Scan to download your photo strip" /> : null}</div>
+            </div>
 
-          <div className="edit-actions">
-            <button className="primary" type="button" onClick={() => resetProject("background")}>
-              Home
-            </button>
-            <button className="primary" type="button" onClick={printSheet}>
+            <button className="print-btn" type="button" onClick={printSheet}>
               Print
             </button>
           </div>
