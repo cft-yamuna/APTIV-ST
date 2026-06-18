@@ -883,8 +883,14 @@ export default function App() {
                 <input
                   type="tel"
                   inputMode="numeric"
+                  maxLength={10}
                   value={registration.mobile}
-                  onChange={(event) => updateRegistrationField("mobile", event.target.value)}
+                  onChange={(event) =>
+                    updateRegistrationField(
+                      "mobile",
+                      event.target.value.replace(/\D/g, "").slice(0, 10)
+                    )
+                  }
                   autoComplete="tel"
                 />
                 {!registration.mobile && (
