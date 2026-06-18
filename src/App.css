@@ -946,6 +946,29 @@ select {
   background: #ff520c;
 }
 
+.home-btn {
+  position: absolute;
+  top: 1539.34px;
+  left: 562.98px;
+  width: 426.73px;
+  height: 72.92px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 116.9px;
+  background: #ff3e0c;
+  color: #ffffff;
+  font-family: "Formular", "Sons", sans-serif;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  cursor: pointer;
+}
+
+.home-btn:hover {
+  background: #ff520c;
+}
+
 canvas {
   display: none;
 }
@@ -1012,5 +1035,84 @@ canvas {
     width: 4in;
     height: 6in;
     object-fit: fill;
+  }
+}
+
+/* Download viewer — the page phones land on after scanning the QR. */
+.viewer {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #2b244a;
+}
+
+.viewer-card {
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+  width: 100%;
+  max-width: 440px;
+  text-align: center;
+}
+
+.viewer-title {
+  margin: 0;
+  color: #ffffff;
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.viewer-image {
+  width: 100%;
+  max-width: 360px;
+  height: auto;
+  border-radius: 14px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+.viewer-text {
+  margin: 0;
+  color: #e9e7f5;
+  font-size: 16px;
+}
+
+.viewer-hint {
+  margin: 0;
+  color: #b7b2d6;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.viewer-btn {
+  min-height: 0;
+  padding: 16px 48px;
+  border: 0;
+  border-radius: 100px;
+  background: #ff3e0c;
+  color: #ffffff;
+  font-family: "Formular", "Sons", sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+
+.viewer-btn:hover {
+  background: #ff520c;
+}
+
+.viewer-spinner {
+  width: 46px;
+  height: 46px;
+  border: 5px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #ff3e0c;
+  border-radius: 50%;
+  animation: viewer-spin 0.9s linear infinite;
+}
+
+@keyframes viewer-spin {
+  to {
+    transform: rotate(360deg);
   }
 }

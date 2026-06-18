@@ -15,6 +15,9 @@ const PERSON_SCALE = 1;
 const PERSON_BASELINE_DROP = 0.06;
 const FRAME_SHADOW_CROP = 64;
 const STRIP_COUNT = 3;
+// Public origin of the deployed app — the QR points here so phones reach the
+// download viewer over the internet (not the kiosk's local address).
+const APP_BASE_URL = "https://aptiv-st.vercel.app";
 const BG_REMOVAL_URL = "http://127.0.0.1:8765/remove-bg";
 const BACKGROUND_OPTIONS = [
   { id: "bg-1", name: "Mountains", previewSrc: "/select1.png", src: "/bg1.png" },
@@ -818,8 +821,12 @@ export default function App() {
       const blob = await (await fetch(imageData)).blob();
       const filename = `photo-strip-${new Date().toISOString().replace(/[:.]/g, "-")}.png`;
       const publicUrl = await uploadStripToSupabase(blob, filename);
+      // Always point the QR at the deployed viewer + Supabase image (both public),
+      // so scanning works from any phone over Wi-Fi or cellular even when the
+      // kiosk itself is running locally — never the unreachable localhost address.
+      const viewerUrl = `${APP_BASE_URL}/?img=${encodeURIComponent(publicUrl)}&name=${encodeURIComponent(filename)}`;
 
-      const qrDataUrl = await QRCode.toDataURL(publicUrl, {
+      const qrDataUrl = await QRCode.toDataURL(viewerUrl, {
         margin: 1,
         width: 600,
         errorCorrectionLevel: "M",
@@ -927,6 +934,10 @@ export default function App() {
 
             <button className="print-btn" type="button" onClick={printSheet}>
               Print
+            </button>
+
+            <button className="home-btn" type="button" onClick={() => resetProject("register")}>
+              Home
             </button>
           </div>
         </main>
