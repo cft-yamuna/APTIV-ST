@@ -5,6 +5,8 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 const OUTPUT_DIR = path.resolve(process.cwd(), "output_images");
+const DATA_DIR = path.resolve(process.cwd(), "data");
+const REGISTRATIONS_FILE = path.join(DATA_DIR, "registrations.json");
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 
 function getTimestampedFilename() {
@@ -36,10 +38,63 @@ async function readJsonBody(req) {
   return JSON.parse(body || "{}");
 }
 
+async function appendRegistration(entry) {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+
+  let registrations = [];
+  try {
+    registrations = JSON.parse(await fs.readFile(REGISTRATIONS_FILE, "utf8"));
+    if (!Array.isArray(registrations)) registrations = [];
+  } catch {
+    // File doesn't exist yet (or is corrupt) — start a fresh list.
+    registrations = [];
+  }
+
+  registrations.push(entry);
+  await fs.writeFile(REGISTRATIONS_FILE, JSON.stringify(registrations, null, 2));
+}
+
 function outputImageSaver() {
   return {
     name: "output-image-saver",
     configureServer(server) {
+      // Save visitor contact details (name, email, mobile) to data/registrations.json.
+      server.middlewares.use("/api/save-registration", async (req, res) => {
+        if (req.method !== "POST") {
+          res.statusCode = 405;
+          res.end("Method not allowed");
+          return;
+        }
+
+        try {
+          const body = await readJsonBody(req);
+          const name = String(body.name || "").trim();
+          const email = String(body.email || "").trim();
+          const mobile = String(body.mobile || "").trim();
+
+          if (!name || !email || !mobile) {
+            res.statusCode = 400;
+            res.end("Missing name, email, or mobile");
+            return;
+          }
+
+          if (!/^\d{10}$/.test(mobile)) {
+            res.statusCode = 400;
+            res.end("Mobile number must be exactly 10 digits");
+            return;
+          }
+
+          await appendRegistration({ name, email, mobile, savedAt: new Date().toISOString() });
+
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: true }));
+        } catch (error) {
+          console.error("Could not save registration.", error);
+          res.statusCode = 500;
+          res.end("Could not save registration");
+        }
+      });
+
       // Save the generated strip and return a LAN-reachable download URL.
       server.middlewares.use("/api/save-output-image", async (req, res) => {
         if (req.method !== "POST") {

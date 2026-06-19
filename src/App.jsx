@@ -403,10 +403,12 @@ export default function App() {
   }, []);
 
   function updateRegistrationField(field, value) {
-    setRegistration((current) => ({ ...current, [field]: value }));
+    // Indian mobile numbers are exactly 10 digits — keep digits only, max 10.
+    const nextValue = field === "mobile" ? value.replace(/\D/g, "").slice(0, 10) : value;
+    setRegistration((current) => ({ ...current, [field]: nextValue }));
   }
 
-  function handleRegisterSubmit(event) {
+  async function handleRegisterSubmit(event) {
     event.preventDefault();
     const name = registration.name.trim();
     const email = registration.email.trim();
@@ -417,8 +419,32 @@ export default function App() {
       return;
     }
 
+    if (!/^\d{10}$/.test(mobile)) {
+      updateStatus("Mobile number must be exactly 10 digits", "error");
+      return;
+    }
+
     setRegistration({ name, email, mobile });
+    await saveRegistration({ name, email, mobile });
     goToCapture();
+  }
+
+  async function saveRegistration({ name, email, mobile }) {
+    try {
+      // Persisted to data/registrations.json by the Vite dev/preview server.
+      const response = await fetch("/api/save-registration", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, mobile }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Save failed with status ${response.status}`);
+      }
+    } catch (error) {
+      // Don't block the kiosk flow if saving the contact details fails.
+      console.warn("Could not save registration details.", error);
+    }
   }
 
   async function getSegmenter() {
@@ -430,7 +456,8 @@ export default function App() {
       .createSegmenter(bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation, {
         runtime: "mediapipe",
         modelType: "general",
-        solutionPath: "https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation",
+        // Served from public/ so the kiosk works fully offline (no CDN).
+        solutionPath: "/mediapipe/selfie_segmentation",
       })
       .then((segmenter) => {
         segmenterRef.current = segmenter;
@@ -872,6 +899,8 @@ export default function App() {
                 <input
                   type="tel"
                   inputMode="numeric"
+                  pattern="[0-9]{10}"
+                  maxLength={10}
                   value={registration.mobile}
                   onChange={(event) => updateRegistrationField("mobile", event.target.value)}
                   autoComplete="tel"
