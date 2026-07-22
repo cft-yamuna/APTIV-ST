@@ -2,13 +2,13 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as bodySegmentation from "@tensorflow-models/body-segmentation";
 import "@tensorflow/tfjs-backend-webgl";
 
-const STAGE_WIDTH = 1080;
-const STAGE_HEIGHT = 1920;
+const STAGE_WIDTH = 1920;
+const STAGE_HEIGHT = 1080;
 const POSE_WIDTH = 468;
 const POSE_HEIGHT = 702;
 const SHEET_WIDTH = 1200;
 const SHEET_HEIGHT = 1800;
-const FRAME_SRC = "/framelat.png";
+const FRAME_SRC = "/frame_lead.png";
 const PERSON_SCALE = 1;
 const PERSON_BASELINE_DROP = 0.06;
 const FRAME_SHADOW_CROP = 64;
@@ -80,38 +80,69 @@ function setCanvasContain(ctx, source, sourceWidth, sourceHeight, targetX, targe
 }
 
 function drawFrameBackground(ctx, frameImage) {
-  // framelat.png is a single-strip frame, so draw it once per strip column.
-  const columns = 2;
-  const columnWidth = SHEET_WIDTH / columns;
-  for (let column = 0; column < columns; column += 1) {
-    ctx.drawImage(frameImage, column * columnWidth, 0, columnWidth, SHEET_HEIGHT);
-  }
+  // frame_lead.png already contains both strip columns, so it fills the sheet once.
+  ctx.drawImage(frameImage, 0, 0, SHEET_WIDTH, SHEET_HEIGHT);
 }
 
-// Photo slot positions inside a single strip column (600 x 1800 space),
-// measured against the framelat.png frame.
-const STRIP_PHOTO_SLOTS = [
-  { top: 59.42, left: 49.74, width: 500.52, height: 421.97 },
-  { top: 539.9, left: 49.74, width: 500.52, height: 421.97 },
-  { top: 1020.38, left: 49.74, width: 500.52, height: 421.97 },
-];
+// Photo slots measured off the frame_lead.png artwork in its own 1200 x 1800 design
+// space, then scaled to the sheet so SHEET_WIDTH/HEIGHT can change without
+// re-measuring anything. Each value sits on the centre of the printed border line.
+const FRAME_ART_WIDTH = 1200;
+const FRAME_ART_HEIGHT = 1800;
+const FRAME_SLOT_COLUMNS = [26.5, 626.5];
+const FRAME_SLOT_ROWS = [443.5, 810, 1176.5];
+const FRAME_SLOT_WIDTH = 546;
+const FRAME_SLOT_HEIGHT = 337.25;
+
+// The red accent bars sit on the top and bottom border of every slot, so they get
+// re-stamped from the frame after the photos land — otherwise the photos bury them.
+// Both values are in artwork units and scale with the sheet.
+const ACCENT_BAND_HEIGHT = 20;
+const ACCENT_BAND_BLEED = 4;
+
+function drawSlotAccents(ctx, frameImage, box) {
+  const scaleX = SHEET_WIDTH / FRAME_ART_WIDTH;
+  const scaleY = SHEET_HEIGHT / FRAME_ART_HEIGHT;
+  const sourceX = frameImage.naturalWidth / SHEET_WIDTH;
+  const sourceY = frameImage.naturalHeight / SHEET_HEIGHT;
+  const bandHeight = ACCENT_BAND_HEIGHT * scaleY;
+  const bleed = ACCENT_BAND_BLEED * scaleX;
+
+  [box.y, box.y + box.height].forEach((edgeY) => {
+    const destX = box.x - bleed;
+    const destY = edgeY - bandHeight / 2;
+    const destWidth = box.width + bleed * 2;
+
+    ctx.drawImage(
+      frameImage,
+      destX * sourceX,
+      destY * sourceY,
+      destWidth * sourceX,
+      bandHeight * sourceY,
+      destX,
+      destY,
+      destWidth,
+      bandHeight
+    );
+  });
+}
 
 function getSheetBoxes() {
-  const columns = 2;
-  const columnWidth = SHEET_WIDTH / columns;
+  const scaleX = SHEET_WIDTH / FRAME_ART_WIDTH;
+  const scaleY = SHEET_HEIGHT / FRAME_ART_HEIGHT;
   const boxes = [];
 
-  for (let column = 0; column < columns; column += 1) {
-    STRIP_PHOTO_SLOTS.forEach((slot, row) => {
+  FRAME_SLOT_COLUMNS.forEach((slotLeft) => {
+    FRAME_SLOT_ROWS.forEach((slotTop, row) => {
       boxes.push({
         poseIndex: row,
-        x: column * columnWidth + slot.left,
-        y: slot.top,
-        width: slot.width,
-        height: slot.height,
+        x: slotLeft * scaleX,
+        y: slotTop * scaleY,
+        width: FRAME_SLOT_WIDTH * scaleX,
+        height: FRAME_SLOT_HEIGHT * scaleY,
       });
     });
-  }
+  });
 
   return boxes;
 }
@@ -330,8 +361,7 @@ export default function App() {
   const segmenterLoadingRef = useRef(null);
   const imageBoxesRef = useRef([]);
 
-  const [step, setStep] = useState("register");
-  const [registration, setRegistration] = useState({ name: "", email: "", mobile: "" });
+  const [step, setStep] = useState("start");
   const [stageScale, setStageScale] = useState(1);
   const [status, setStatus] = useState({ message: "Select a background", type: "" });
   const [cameras, setCameras] = useState([]);
@@ -402,51 +432,6 @@ export default function App() {
     return () => window.removeEventListener("resize", updateStageScale);
   }, []);
 
-  function updateRegistrationField(field, value) {
-    // Indian mobile numbers are exactly 10 digits — keep digits only, max 10.
-    const nextValue = field === "mobile" ? value.replace(/\D/g, "").slice(0, 10) : value;
-    setRegistration((current) => ({ ...current, [field]: nextValue }));
-  }
-
-  async function handleRegisterSubmit(event) {
-    event.preventDefault();
-    const name = registration.name.trim();
-    const email = registration.email.trim();
-    const mobile = registration.mobile.trim();
-
-    if (!name || !email || !mobile) {
-      updateStatus("Please fill in your name, email, and mobile number", "error");
-      return;
-    }
-
-    if (!/^\d{10}$/.test(mobile)) {
-      updateStatus("Mobile number must be exactly 10 digits", "error");
-      return;
-    }
-
-    setRegistration({ name, email, mobile });
-    await saveRegistration({ name, email, mobile });
-    goToCapture();
-  }
-
-  async function saveRegistration({ name, email, mobile }) {
-    try {
-      // Persisted to data/registrations.json by the Vite dev/preview server.
-      const response = await fetch("/api/save-registration", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, mobile }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Save failed with status ${response.status}`);
-      }
-    } catch (error) {
-      // Don't block the kiosk flow if saving the contact details fails.
-      console.warn("Could not save registration details.", error);
-    }
-  }
-
   async function getSegmenter() {
     if (segmenterRef.current) return segmenterRef.current;
     if (segmenterLoadingRef.current) return segmenterLoadingRef.current;
@@ -514,6 +499,10 @@ export default function App() {
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
       await listCameras();
+      // The webcam can silently fall back below the requested 1920x1080, which caps
+      // how sharp the printed strip can ever be — log what we actually got.
+      const track = stream.getVideoTracks()[0];
+      console.info("Camera stream:", track?.label, track?.getSettings?.());
       setCameraReady(true);
       updateStatus(`Capture ${STRIP_COUNT} photos`, "ready");
     } catch (error) {
@@ -623,6 +612,8 @@ export default function App() {
     canvas.height = SHEET_HEIGHT;
 
     const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, SHEET_WIDTH, SHEET_HEIGHT);
 
@@ -638,8 +629,6 @@ export default function App() {
       const pose = nextPoses[box.poseIndex];
       if (!pose) return;
 
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(box.x - 4, box.y - 4, box.width + 8, box.height + 8);
       setCanvasCoverWithFocus(
         ctx,
         pose.baseCanvas,
@@ -652,6 +641,10 @@ export default function App() {
         0.5,
         0.5
       );
+
+      if (frameLoaded) {
+        drawSlotAccents(ctx, frameImageRef.current, box);
+      }
     });
 
     boxes.forEach((box) => {
@@ -674,13 +667,12 @@ export default function App() {
     return dataUrl;
   }
 
-  function resetProject(nextStep = "register") {
+  function resetProject(nextStep = "start") {
     setPoses([]);
     setEmojiPlacements([]);
     setSheetUrl("");
-    setRegistration({ name: "", email: "", mobile: "" });
     setStep(nextStep);
-    updateStatus(nextStep === "register" ? "Enter your details" : `Capture ${STRIP_COUNT} photos`, "ready");
+    updateStatus(nextStep === "start" ? "Tap capture to begin" : `Capture ${STRIP_COUNT} photos`, "ready");
   }
 
   function chooseBackground(option) {
@@ -863,59 +855,12 @@ export default function App() {
 
   return (
     <div className="app">
-      {step === "register" && (
-        <main className="register-screen">
-          <div className="kiosk-stage register-stage" style={{ transform: `translate(-50%, -50%) scale(${stageScale})` }}>
-            <form className="register-form" onSubmit={handleRegisterSubmit}>
-              <label className="reg-field reg-name">
-                <input
-                  type="text"
-                  value={registration.name}
-                  onChange={(event) => updateRegistrationField("name", event.target.value)}
-                  autoComplete="name"
-                />
-                {!registration.name && (
-                  <span className="reg-placeholder">
-                    Enter Your <b>Name</b>
-                  </span>
-                )}
-              </label>
-
-              <label className="reg-field reg-email">
-                <input
-                  type="email"
-                  value={registration.email}
-                  onChange={(event) => updateRegistrationField("email", event.target.value)}
-                  autoComplete="email"
-                />
-                {!registration.email && (
-                  <span className="reg-placeholder">
-                    Enter Your <b>Email</b>
-                  </span>
-                )}
-              </label>
-
-              <label className="reg-field reg-mobile">
-                <input
-                  type="tel"
-                  inputMode="numeric"
-                  pattern="[0-9]{10}"
-                  maxLength={10}
-                  value={registration.mobile}
-                  onChange={(event) => updateRegistrationField("mobile", event.target.value)}
-                  autoComplete="tel"
-                />
-                {!registration.mobile && (
-                  <span className="reg-placeholder">
-                    Enter Your <b>Mobile No.</b>
-                  </span>
-                )}
-              </label>
-
-              <button className="reg-submit" type="submit">
-                SUBMIT
-              </button>
-            </form>
+      {step === "start" && (
+        <main className="start-screen">
+          <div className="kiosk-stage start-stage" style={{ transform: `translate(-50%, -50%) scale(${stageScale})` }}>
+            <button className="start-capture-btn" type="button" onClick={goToCapture} aria-label="Start capture">
+              <img src="/start.png" alt="" />
+            </button>
           </div>
         </main>
       )}
@@ -932,8 +877,9 @@ export default function App() {
               type="button"
               disabled={!cameraReady || isCapturingSequence || isProcessingCaptures}
               onClick={captureImage}
+              aria-label={captureLabel}
             >
-              {captureLabel}
+              <img src="/capture.png" alt="" />
             </button>
           </div>
         </main>
@@ -946,12 +892,12 @@ export default function App() {
               {sheetUrl ? <img src={sheetUrl} alt="Editable output preview" /> : "Preparing preview"}
             </div>
 
-            <button className="print-btn" type="button" onClick={printSheet}>
-              Print
+            <button className="print-btn" type="button" onClick={printSheet} aria-label="Print">
+              <img src="/print.png" alt="" />
             </button>
 
-            <button className="home-btn" type="button" onClick={() => resetProject("register")}>
-              Home
+            <button className="home-btn" type="button" onClick={() => resetProject("start")} aria-label="Home">
+              <img src="/home.png" alt="" />
             </button>
           </div>
         </main>

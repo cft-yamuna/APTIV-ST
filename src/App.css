@@ -690,8 +690,8 @@ select {
   background: var(--panel-2);
 }
 
-/* ---- Registration screen (1080 x 1920 kiosk stage) ---- */
-.register-screen {
+/* ---- Start screen (1920 x 1080 kiosk stage) ---- */
+.start-screen {
   position: fixed;
   inset: 0;
   display: block;
@@ -704,99 +704,39 @@ select {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 1080px;
-  height: 1920px;
+  width: 1920px;
+  height: 1080px;
   transform-origin: center center;
 }
 
-.register-stage {
-  background: url("/bg01.png") center / cover no-repeat;
+.start-stage {
+  background: url("/bg_1.png") center / cover no-repeat;
 }
 
-.register-form {
+.start-capture-btn {
   position: absolute;
-  inset: 0;
-}
-
-.reg-field {
-  position: absolute;
-  left: 204.18px;
-  width: 671.65px;
-  height: 103.3px;
-  border-radius: 10px;
-  border: 1.5px solid rgba(255, 255, 255, 0.28);
-  background: rgba(255, 255, 255, 0.04);
-  overflow: hidden;
-}
-
-.reg-field.reg-name {
-  top: 672px;
-}
-
-.reg-field.reg-email {
-  top: 802.57px;
-}
-
-.reg-field.reg-mobile {
-  top: 933.14px;
-}
-
-.reg-field input {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  padding: 0 34px;
-  border: 0;
-  border-radius: 10px;
-  background: transparent;
-  color: #ffffff;
-  font-family: "Formular", "Sons", sans-serif;
-  font-size: 34px;
-  font-weight: 500;
-  outline: none;
-}
-
-.reg-placeholder {
-  position: absolute;
-  top: 50%;
-  left: 34px;
-  transform: translateY(-50%);
-  color: rgba(255, 255, 255, 0.75);
-  font-family: "Formular", "Sons", sans-serif;
-  font-size: 34px;
-  font-weight: 500;
-  pointer-events: none;
-}
-
-.reg-placeholder b {
-  color: #ff3e0c;
-  font-weight: 700;
-}
-
-.reg-submit {
-  position: absolute;
-  top: 1153.93px;
-  left: 197.14px;
-  width: 671.65px;
-  height: 114.78px;
+  top: 803px;
+  left: 818px;
+  width: 285px;
+  height: 100px;
   min-height: 0;
   padding: 0;
   border: 0;
-  border-radius: 184px;
-  background: #ff3e0c;
-  color: #ffffff;
-  font-family: "Formular", "Sons", sans-serif;
-  font-size: 44px;
-  font-weight: 700;
-  letter-spacing: 2px;
+  border-radius: 99px;
+  background: transparent;
+  overflow: hidden;
   cursor: pointer;
 }
 
-.reg-submit:hover {
-  background: #ff520c;
+.start-capture-btn img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
 }
 
-/* ---- Capture screen (1080 x 1920 kiosk stage) ---- */
+/* ---- Capture screen (1920 x 1080 kiosk stage) ---- */
 .capture-screen {
   position: fixed;
   inset: 0;
@@ -808,15 +748,15 @@ select {
 }
 
 .capture-stage {
-  background: url("/bg02.png") center / cover no-repeat;
+  background: url("/bg_2.png") center / cover no-repeat;
 }
 
 .capture-video-box {
   position: absolute;
-  top: 447.46px;
-  left: 180.37px;
-  width: 719.27px;
-  height: 1133.08px;
+  top: 187px;
+  left: 670px;
+  width: 579px;
+  height: 673px;
   border-radius: 16px;
   overflow: hidden;
   background: #070806;
@@ -830,34 +770,33 @@ select {
 
 .capture-btn {
   position: absolute;
-  top: 1660px;
-  left: 204.18px;
-  width: 671.65px;
-  height: 114.78px;
+  top: 910px;
+  left: 818px;
+  width: 285px;
+  height: 100px;
   min-height: 0;
   padding: 0;
   border: 0;
-  border-radius: 184px;
-  background: #ff3e0c;
-  color: #ffffff;
-  font-family: "Formular", "Sons", sans-serif;
-  font-size: 44px;
-  font-weight: 700;
-  letter-spacing: 2px;
+  border-radius: 99px;
+  background: transparent;
+  overflow: hidden;
   cursor: pointer;
 }
 
-.capture-btn:hover:not(:disabled) {
-  background: #ff520c;
+.capture-btn img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
 }
 
 .capture-btn:disabled {
-  background: #b53a18;
-  color: rgba(255, 255, 255, 0.7);
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
-/* ---- Edit screen (1080 x 1920 kiosk stage) ---- */
+/* ---- Edit screen (1920 x 1080 kiosk stage) ---- */
 .editor-screen {
   position: fixed;
   inset: 0;
@@ -869,15 +808,15 @@ select {
 }
 
 .edit-stage {
-  background: url("/bg03.png") center / cover no-repeat;
+  background: url("/bg_3.png") center / cover no-repeat;
 }
 
 .strip-preview-box {
   position: absolute;
-  top: 333.23px;
-  left: 89.39px;
-  width: 425.41px;
-  height: 1276.22px;
+  top: 146px;
+  left: 710px;
+  width: 499.5px;
+  height: 749.25px;
   overflow: hidden;
   background: transparent;
   color: #a7ad9a;
@@ -887,59 +826,42 @@ select {
 }
 
 .strip-preview-box img {
-  position: absolute;
-  top: 0;
-  left: 0;
   display: block;
-  width: 200%;
+  width: 100%;
   height: 100%;
-  object-fit: fill;
+  object-fit: contain;
+}
+
+.print-btn,
+.home-btn {
+  position: absolute;
+  top: 940px;
+  width: 285px;
+  height: 100px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 99px;
+  background: transparent;
+  overflow: hidden;
+  cursor: pointer;
 }
 
 .print-btn {
-  position: absolute;
-  top: 1442.42px;
-  left: 562.98px;
-  width: 426.73px;
-  height: 72.92px;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 116.9px;
-  background: #ff3e0c;
-  color: #ffffff;
-  font-family: "Formular", "Sons", sans-serif;
-  font-size: 32px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  cursor: pointer;
-}
-
-.print-btn:hover {
-  background: #ff520c;
+  left: 662px;
 }
 
 .home-btn {
-  position: absolute;
-  top: 1539.34px;
-  left: 562.98px;
-  width: 426.73px;
-  height: 72.92px;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 116.9px;
-  background: #ff3e0c;
-  color: #ffffff;
-  font-family: "Formular", "Sons", sans-serif;
-  font-size: 32px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  cursor: pointer;
+  left: 974px;
 }
 
-.home-btn:hover {
-  background: #ff520c;
+.print-btn img,
+.home-btn img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
 }
 
 canvas {
