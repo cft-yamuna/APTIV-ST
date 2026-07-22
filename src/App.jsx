@@ -187,6 +187,26 @@ function canvasToBlob(canvas, type = "image/png", quality) {
   });
 }
 
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Could not encode photo strip."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+// Same lossless PNG data URL as canvas.toDataURL, but encoded off the main
+// thread so the UI stays responsive while the sheet is written. Falls back to
+// the synchronous call if toBlob/FileReader fails, so the flow never breaks.
+async function encodeCanvasToDataUrl(canvas) {
+  try {
+    return await blobToDataUrl(await canvasToBlob(canvas, "image/png"));
+  } catch {
+    return canvas.toDataURL("image/png");
+  }
+}
+
 function loadImageFromBlob(blob) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(blob);
@@ -661,7 +681,7 @@ export default function App() {
       );
     });
 
-    const dataUrl = canvas.toDataURL("image/png");
+    const dataUrl = await encodeCanvasToDataUrl(canvas);
     setSheetUrl(dataUrl);
     updateStatus("Preview ready", "ready");
     return dataUrl;
@@ -694,8 +714,10 @@ export default function App() {
   }
 
   async function goToEdit() {
-    await drawSheet(poses, emojiPlacements);
+    // Show the edit screen first so the controls are usable while the sheet
+    // renders; the preview slot falls back to its placeholder until sheetUrl lands.
     setStep("edit");
+    await drawSheet(poses, emojiPlacements);
   }
 
   function captureCurrentFrame() {
@@ -765,8 +787,9 @@ export default function App() {
       const nextPlacements = Array(STRIP_COUNT).fill(null);
       setPoses(processedPoses);
       setEmojiPlacements(nextPlacements);
-      const sheetDataUrl = await drawSheet(processedPoses, nextPlacements);
+      // Switch screens first so the controls are usable while the sheet renders.
       setStep("edit");
+      const sheetDataUrl = await drawSheet(processedPoses, nextPlacements);
       saveOutputImage(sheetDataUrl);
     } finally {
       setCountdown(null);
