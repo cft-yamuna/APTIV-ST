@@ -8,7 +8,7 @@ const POSE_WIDTH = 468;
 const POSE_HEIGHT = 702;
 const SHEET_WIDTH = 1200;
 const SHEET_HEIGHT = 1800;
-const FRAME_SRC = "/frame_lead.png";
+const FRAME_SRC = "/leadframe.png";
 const PERSON_SCALE = 1;
 const PERSON_BASELINE_DROP = 0.06;
 const FRAME_SHADOW_CROP = 64;
@@ -36,9 +36,8 @@ function setCanvasCover(ctx, source, sourceWidth, sourceHeight, targetX, targetY
   setCanvasCoverWithFocus(ctx, source, sourceWidth, sourceHeight, targetX, targetY, targetWidth, targetHeight, 0.5, 0.5);
 }
 
-function setCanvasCoverWithFocus(ctx, source, sourceWidth, sourceHeight, targetX, targetY, targetWidth, targetHeight, focusX = 0.5, focusY = 0.5) {
+function getCoverCrop(sourceWidth, sourceHeight, targetRatio, focusX = 0.5, focusY = 0.5) {
   const sourceRatio = sourceWidth / sourceHeight;
-  const targetRatio = targetWidth / targetHeight;
   let cropWidth = sourceWidth;
   let cropHeight = sourceHeight;
   let cropX = 0;
@@ -52,10 +51,53 @@ function setCanvasCoverWithFocus(ctx, source, sourceWidth, sourceHeight, targetX
     cropY = (sourceHeight - cropHeight) * focusY;
   }
 
-  cropX = Math.max(0, Math.min(sourceWidth - cropWidth, cropX));
-  cropY = Math.max(0, Math.min(sourceHeight - cropHeight, cropY));
+  return {
+    x: Math.max(0, Math.min(sourceWidth - cropWidth, cropX)),
+    y: Math.max(0, Math.min(sourceHeight - cropHeight, cropY)),
+    width: cropWidth,
+    height: cropHeight,
+  };
+}
 
-  ctx.drawImage(source, cropX, cropY, cropWidth, cropHeight, targetX, targetY, targetWidth, targetHeight);
+function setCanvasCoverWithFocus(ctx, source, sourceWidth, sourceHeight, targetX, targetY, targetWidth, targetHeight, focusX = 0.5, focusY = 0.5) {
+  const crop = getCoverCrop(sourceWidth, sourceHeight, targetWidth / targetHeight, focusX, focusY);
+  ctx.drawImage(source, crop.x, crop.y, crop.width, crop.height, targetX, targetY, targetWidth, targetHeight);
+}
+
+// Canvas throws away detail when a single drawImage reduces by more than half,
+// which is exactly what a 1920+ px camera frame into a ~520 px slot does. Halving
+// repeatedly first keeps the photo sharp instead of soft and aliased.
+function drawCoverSharp(ctx, source, sourceWidth, sourceHeight, targetX, targetY, targetWidth, targetHeight, focusX = 0.5, focusY = 0.5) {
+  const crop = getCoverCrop(sourceWidth, sourceHeight, targetWidth / targetHeight, focusX, focusY);
+  const destWidth = Math.ceil(targetWidth);
+  const destHeight = Math.ceil(targetHeight);
+
+  let stepSource = source;
+  let stepX = crop.x;
+  let stepY = crop.y;
+  let stepWidth = crop.width;
+  let stepHeight = crop.height;
+
+  while (stepWidth > destWidth * 2 && stepHeight > destHeight * 2) {
+    const nextWidth = Math.max(destWidth, Math.round(stepWidth / 2));
+    const nextHeight = Math.max(destHeight, Math.round(stepHeight / 2));
+    const stepCanvas = document.createElement("canvas");
+    stepCanvas.width = nextWidth;
+    stepCanvas.height = nextHeight;
+
+    const stepCtx = stepCanvas.getContext("2d");
+    stepCtx.imageSmoothingEnabled = true;
+    stepCtx.imageSmoothingQuality = "high";
+    stepCtx.drawImage(stepSource, stepX, stepY, stepWidth, stepHeight, 0, 0, nextWidth, nextHeight);
+
+    stepSource = stepCanvas;
+    stepX = 0;
+    stepY = 0;
+    stepWidth = nextWidth;
+    stepHeight = nextHeight;
+  }
+
+  ctx.drawImage(stepSource, stepX, stepY, stepWidth, stepHeight, targetX, targetY, targetWidth, targetHeight);
 }
 
 function setCanvasContain(ctx, source, sourceWidth, sourceHeight, targetX, targetY, targetWidth, targetHeight) {
@@ -79,53 +121,25 @@ function setCanvasContain(ctx, source, sourceWidth, sourceHeight, targetX, targe
   );
 }
 
-function drawFrameBackground(ctx, frameImage) {
-  // frame_lead.png already contains both strip columns, so it fills the sheet once.
+function drawFrameOverlay(ctx, frameImage) {
+  // leadframe.png already contains both strip columns and is transparent only where
+  // the photos go, so painting it over the photos restores every printed detail —
+  // including the red accent bars that overlap the slot corners.
   ctx.drawImage(frameImage, 0, 0, SHEET_WIDTH, SHEET_HEIGHT);
 }
 
-// Photo slots measured off the frame_lead.png artwork in its own 1200 x 1800 design
-// space, then scaled to the sheet so SHEET_WIDTH/HEIGHT can change without
-// re-measuring anything. Each value sits on the centre of the printed border line.
-const FRAME_ART_WIDTH = 1200;
-const FRAME_ART_HEIGHT = 1800;
-const FRAME_SLOT_COLUMNS = [26.5, 626.5];
-const FRAME_SLOT_ROWS = [443.5, 810, 1176.5];
-const FRAME_SLOT_WIDTH = 546;
-const FRAME_SLOT_HEIGHT = 337.25;
-
-// The red accent bars sit on the top and bottom border of every slot, so they get
-// re-stamped from the frame after the photos land — otherwise the photos bury them.
-// Both values are in artwork units and scale with the sheet.
-const ACCENT_BAND_HEIGHT = 20;
-const ACCENT_BAND_BLEED = 4;
-
-function drawSlotAccents(ctx, frameImage, box) {
-  const scaleX = SHEET_WIDTH / FRAME_ART_WIDTH;
-  const scaleY = SHEET_HEIGHT / FRAME_ART_HEIGHT;
-  const sourceX = frameImage.naturalWidth / SHEET_WIDTH;
-  const sourceY = frameImage.naturalHeight / SHEET_HEIGHT;
-  const bandHeight = ACCENT_BAND_HEIGHT * scaleY;
-  const bleed = ACCENT_BAND_BLEED * scaleX;
-
-  [box.y, box.y + box.height].forEach((edgeY) => {
-    const destX = box.x - bleed;
-    const destY = edgeY - bandHeight / 2;
-    const destWidth = box.width + bleed * 2;
-
-    ctx.drawImage(
-      frameImage,
-      destX * sourceX,
-      destY * sourceY,
-      destWidth * sourceX,
-      bandHeight * sourceY,
-      destX,
-      destY,
-      destWidth,
-      bandHeight
-    );
-  });
-}
+// Photo slots are the transparent cut-outs in leadframe.png, measured in its own
+// 1153 x 1729 pixel space and scaled to the sheet, so SHEET_WIDTH/HEIGHT can change
+// without re-measuring anything.
+const FRAME_ART_WIDTH = 1153;
+const FRAME_ART_HEIGHT = 1729;
+const FRAME_SLOT_COLUMNS = [28, 604];
+const FRAME_SLOT_ROWS = [427, 778, 1129];
+const FRAME_SLOT_WIDTH = 520;
+const FRAME_SLOT_HEIGHT = 323;
+// The photo is painted a hair past the cut-out on every side so no white seam can
+// show through the anti-aliased edge; the frame overlay hides the overdraw.
+const SLOT_BLEED = 2;
 
 function getSheetBoxes() {
   const scaleX = SHEET_WIDTH / FRAME_ART_WIDTH;
@@ -147,6 +161,19 @@ function getSheetBoxes() {
   return boxes;
 }
 
+// The slot grown by the bleed, i.e. the rectangle the photo actually fills.
+function getBleedBox(box) {
+  const bleedX = SLOT_BLEED * (SHEET_WIDTH / FRAME_ART_WIDTH);
+  const bleedY = SLOT_BLEED * (SHEET_HEIGHT / FRAME_ART_HEIGHT);
+
+  return {
+    x: box.x - bleedX,
+    y: box.y - bleedY,
+    width: box.width + bleedX * 2,
+    height: box.height + bleedY * 2,
+  };
+}
+
 function drawEmojiAt(ctx, emojiImage, x, y, size) {
   if (!emojiImage) return;
 
@@ -162,17 +189,6 @@ function drawEmojiAt(ctx, emojiImage, x, y, size) {
   ctx.shadowOffsetY = 3;
   ctx.drawImage(emojiImage, x - drawWidth / 2, y - drawHeight / 2, drawWidth, drawHeight);
   ctx.restore();
-}
-
-function makePreviewUrl(sourceCanvas, ratio, focusY = 0.5) {
-  const width = 380;
-  const height = Math.round(width / ratio);
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d");
-  setCanvasCoverWithFocus(ctx, sourceCanvas, sourceCanvas.width, sourceCanvas.height, 0, 0, width, height, 0.5, focusY);
-  return canvas.toDataURL("image/png");
 }
 
 function canvasToBlob(canvas, type = "image/png", quality) {
@@ -403,9 +419,6 @@ export default function App() {
   }, [isCapturingSequence, isProcessingCaptures]);
   const selectedBackgroundIndex = BACKGROUND_OPTIONS.findIndex((option) => option.id === selectedBackground.id);
   const carouselBackgrounds = BACKGROUND_OPTIONS.map((_, index) => BACKGROUND_OPTIONS[(selectedBackgroundIndex + index) % BACKGROUND_OPTIONS.length]);
-  const capturePreviewBox = getSheetBoxes()[0];
-  const capturePreviewRatioValue = capturePreviewBox ? capturePreviewBox.width / capturePreviewBox.height : 2 / 3;
-  const capturePreviewRatio = capturePreviewBox ? `${capturePreviewBox.width} / ${capturePreviewBox.height}` : "2 / 3";
 
   useEffect(() => {
     const frame = new Image();
@@ -506,10 +519,12 @@ export default function App() {
     stopStream();
     updateStatus("Starting camera");
 
+    // Ask for the sharpest stream the webcam has; `ideal` quietly settles for the
+    // camera's real maximum, and every extra pixel here is detail the printed slot
+    // gets to keep.
+    const videoConstraints = { width: { ideal: 3840 }, height: { ideal: 2160 } };
     const constraints = {
-      video: deviceId
-        ? { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
-        : { width: { ideal: 1920 }, height: { ideal: 1080 } },
+      video: deviceId ? { deviceId: { exact: deviceId }, ...videoConstraints } : videoConstraints,
       audio: false,
     };
 
@@ -638,34 +653,33 @@ export default function App() {
     ctx.fillRect(0, 0, SHEET_WIDTH, SHEET_HEIGHT);
 
     const frameLoaded = await ensureImageLoaded(frameImageRef.current, "Loading strip frame");
-    if (frameLoaded) {
-      drawFrameBackground(ctx, frameImageRef.current);
-    }
-
     const boxes = getSheetBoxes();
     imageBoxesRef.current = boxes;
 
+    // Photos go down first and the frame is stamped over them, so every cut-out is
+    // filled edge to edge and the frame's own artwork stays on top of the photo.
     boxes.forEach((box) => {
       const pose = nextPoses[box.poseIndex];
       if (!pose) return;
 
-      setCanvasCoverWithFocus(
+      const fill = getBleedBox(box);
+      drawCoverSharp(
         ctx,
         pose.baseCanvas,
         pose.baseCanvas.width,
         pose.baseCanvas.height,
-        box.x,
-        box.y,
-        box.width,
-        box.height,
+        fill.x,
+        fill.y,
+        fill.width,
+        fill.height,
         0.5,
         0.5
       );
-
-      if (frameLoaded) {
-        drawSlotAccents(ctx, frameImageRef.current, box);
-      }
     });
+
+    if (frameLoaded) {
+      drawFrameOverlay(ctx, frameImageRef.current);
+    }
 
     boxes.forEach((box) => {
       const placement = nextPlacements[box.poseIndex];
@@ -735,11 +749,10 @@ export default function App() {
   }
 
   async function processCapturedFrame(frameCanvas) {
-    // No masking: use the raw captured camera frame directly.
+    // No masking and no re-encoding: the untouched full-resolution camera canvas is
+    // what the sheet samples from, so nothing is thrown away before compositing.
     return {
       id: crypto.randomUUID(),
-      url: frameCanvas.toDataURL("image/png"),
-      previewUrl: makePreviewUrl(frameCanvas, capturePreviewRatioValue, 0.5),
       baseCanvas: frameCanvas,
     };
   }
